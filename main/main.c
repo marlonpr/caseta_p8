@@ -166,18 +166,8 @@ void drawing_task(void *arg)
         }
 
         if (page == PAGE_TIME_DATE) 
-        {
-			
-			
-			
-			// Draw TIME AND DATE: 
-			draw_text_back(1, 10, "10:25", 255, 255, 255); // white 
-			draw_text_back_2(1, 1, "10-02-26", 0, 255, 0); // green 
+        {	
 
-
-			
-			
-/*
 	        //============================ TIME and DATE ======================================  
 	
 	        ds3231_time_t time;
@@ -209,10 +199,6 @@ void drawing_task(void *arg)
 	        draw_text_back_2(1, 1, buf4, 0, 255, 0);   // green           
     
 			// =========================================================================
-*/			
-			
-			
-
 
 
         } else 
@@ -256,10 +242,6 @@ void temp_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(5000)); // read every 5s
     }
 }
- 
-
-
-
 
 
 void app_main(void)
@@ -272,10 +254,9 @@ void app_main(void)
 
     set_gains_and_brightness(1.0f, 1.0f, 1.0f, 255);
 
-    init_max_brightness();
-    
-    
-/*
+    init_max_brightness(); 
+ 
+
     ds3231_dev_t rtc;
     ESP_ERROR_CHECK(init_ds3231(&rtc));
 
@@ -287,27 +268,19 @@ void app_main(void)
 	{
 		ds3231_time_t set_time = {2026, 2, 10, 14, 22, 0, 3};
     	ESP_ERROR_CHECK(ds3231_set_time(&rtc, &set_time));
-	}
-*/
-	
+	}	
 	
 	
     xTaskCreatePinnedToCore(refresh_task,    "refresh_task",4096,NULL,1,NULL,1);
-    xTaskCreatePinnedToCore(drawing_task,"drawing_task",8192,NULL,1,NULL,0);
+    xTaskCreatePinnedToCore(drawing_task,"drawing_task",8192,&rtc,1,NULL,0);
     
 
 	vTaskDelay(pdMS_TO_TICKS(1000));
 	
-    //ds18b20_init(&sensor, GPIO_NUM_3); // Use GPIO4 with 4.7kΩ pull-up resistor    
-    //xTaskCreatePinnedToCore(temp_task,      "TempTask",      1024, NULL, 2, NULL, 0);
+    ds18b20_init(&sensor, GPIO_NUM_3); // Use GPIO4 with 4.7kΩ pull-up resistor    
+    xTaskCreatePinnedToCore(temp_task,      "TempTask",      1024, NULL, 2, NULL, 0);
 
-	vTaskDelay(pdMS_TO_TICKS(3000));
-
-
-/*
-
-*/
-
+	vTaskDelay(pdMS_TO_TICKS(1000));
 
     // LoRa init
     if (lora_init() != ESP_OK) {
@@ -326,3 +299,8 @@ void app_main(void)
 
 
 
+/*
+			// Draw TIME AND DATE: 
+			draw_text_back(1, 10, "10:25", 255, 255, 255); // white 
+			draw_text_back_2(1, 1, "10-02-26", 0, 255, 0); // green 
+*/
