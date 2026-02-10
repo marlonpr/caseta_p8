@@ -1,0 +1,25 @@
+Command: cmake -G Ninja -DPYTHON_DEPS_CHECKED=1 -DPYTHON=C:\Users\Marlon\.espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe -DESP_PLATFORM=1 -DSDKCONFIG=sdkconfig -DCCACHE_ENABLE=0 C:\Users\Marlon\workspace\caseta_p8
+fatal: detected dubious ownership in repository at 'C:/esp/esp-idf-v5.5'
+'C:/esp/esp-idf-v5.5' is owned by:
+	DESKTOP-2VTTLDI/Dise±o Itek (S-1-5-21-2244540535-1816237950-2799963708-1003)
+but the current user is:
+	DESKTOP-2VTTLDI/Marlon (S-1-5-21-2244540535-1816237950-2799963708-1004)
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory C:/esp/esp-idf-v5.5
+fatal: detected dubious ownership in repository at 'C:/esp/esp-idf-v5.5'
+'C:/esp/esp-idf-v5.5' is owned by:
+	DESKTOP-2VTTLDI/Dise±o Itek (S-1-5-21-2244540535-1816237950-2799963708-1003)
+but the current user is:
+	DESKTOP-2VTTLDI/Marlon (S-1-5-21-2244540535-1816237950-2799963708-1004)
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory C:/esp/esp-idf-v5.5
+fatal: detected dubious ownership in repository at 'C:/esp/esp-idf-v5.5/components/openthread/openthread'
+'C:/esp/esp-idf-v5.5/components/openthread/openthread/.git' is owned by:
+	DESKTOP-2VTTLDI/Dise±o Itek (S-1-5-21-2244540535-1816237950-2799963708-1003)
+but the current user is:
+	DESKTOP-2VTTLDI/Marlon (S-1-5-21-2244540535-1816237950-2799963708-1004)
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory C:/esp/esp-idf-v5.5/components/openthread/openthread
