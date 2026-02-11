@@ -15,6 +15,42 @@
 #include "ds3231.h"
 
 
+
+//=========================== buttons config ==============================
+static void init_buttons(void)
+{
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << GPIO_NUM_34) |
+                        (1ULL << GPIO_NUM_35) |
+                        (1ULL << GPIO_NUM_39),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,     // not supported
+        .pull_down_en = GPIO_PULLDOWN_DISABLE, // not supported
+        .intr_type = GPIO_INTR_DISABLE
+    };
+
+    ESP_ERROR_CHECK(gpio_config(&io_conf));
+}
+
+
+
+
+//=========================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // ------------------ Config ------------------
 //#define LED_GPIO        GPIO_NUM_2  //=================== this line is for TX ===========
 #define DEVICE_ID       1       // 0 = Master, 1..N-1 = Slave
@@ -244,6 +280,35 @@ void temp_task(void *arg)
 }
 
 
+void button_task(void *arg)
+{
+    int last34 = 1, last35 = 1, last36 = 1;
+
+    while (1) {
+        int b34 = gpio_get_level(GPIO_NUM_34);
+        int b35 = gpio_get_level(GPIO_NUM_35);
+        int b36 = gpio_get_level(GPIO_NUM_39);
+
+        if (b34 != last34) {
+            ESP_LOGI("BTN", "GPIO34 %s", b34 ? "RELEASED" : "PRESSED");
+            last34 = b34;
+        }
+
+        if (b35 != last35) {
+            ESP_LOGI("BTN", "GPIO35 %s", b35 ? "RELEASED" : "PRESSED");
+            last35 = b35;
+        }
+
+        if (b36 != last36) {
+            ESP_LOGI("BTN", "GPIO36 %s", b36 ? "RELEASED" : "PRESSED");
+            last36 = b36;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(20)); // basic debounce
+    }
+}
+
+
 void app_main(void)
 {
     init_pins();
@@ -255,6 +320,9 @@ void app_main(void)
     set_gains_and_brightness(1.0f, 1.0f, 1.0f, 255);
 
     init_max_brightness(); 
+    
+    init_buttons();
+
  
 
     ds3231_dev_t rtc;
@@ -290,6 +358,13 @@ void app_main(void)
     lora_set_frequency(FREQ_HZ);
     ESP_LOGI(TAG, "Device %d started on %.1f MHz", DEVICE_ID, FREQ_HZ / 1e6);
    	xTaskCreatePinnedToCore(lora_task,      "LoraTask",      4096, NULL, 1, NULL, 0);
+   	
+   		vTaskDelay(pdMS_TO_TICKS(2000));
+
+   	
+   	
+   	xTaskCreatePinnedToCore(button_task, "button_task", 2048, NULL, 3, NULL, 0);
+
 
 
     while (1) {
