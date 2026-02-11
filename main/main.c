@@ -75,9 +75,9 @@ static bool temp_valid = false;
 #define MENU_TIMEOUT_US   (10 * 1000000)  // 10 seconds
 
 //buttons
-#define PIN_MENU    GPIO_NUM_39
-#define PIN_UP      GPIO_NUM_34
-#define PIN_DOWN    GPIO_NUM_36
+#define PIN_MENU    GPIO_NUM_34
+#define PIN_UP      GPIO_NUM_36
+#define PIN_DOWN    GPIO_NUM_39
 
 #define DEBOUNCE_MS    500      // minimum time between presses
 #define REPEAT_DELAY   500     // initial delay before repeating
@@ -169,6 +169,8 @@ static ds3231_time_t tmp_time;   // temporary time editing
 
 static void handle_menu_button(button_t btn, ds3231_dev_t *rtc)
 {
+    
+    last_button_time = esp_timer_get_time();
     
     switch (menu_state)
     {
@@ -338,6 +340,20 @@ static void menu_task(void *arg)
                 down_start = 0;
             }
         }
+        
+        /* ========= MENU TIMEOUT ========= */
+		if (menu_active)
+		{
+		    int64_t now_us = esp_timer_get_time();
+		
+		    if ((now_us - last_button_time) > MENU_TIMEOUT_US && menu_state != MENU_YEAR)
+		    {
+		        menu_active = 0;
+		        menu_state  = MENU_IDLE;
+		        printf("Menu timeout -> exit\n");
+		    }
+		}
+
 
         vTaskDelay(pdMS_TO_TICKS(20));
     }
@@ -549,28 +565,29 @@ void drawing_task(void *arg)
                 case MENU_HOUR:
                     snprintf(buf, sizeof(buf), "HORA: %02d", tmp_time.hour);
                     //draw_text(0, 8, buf, 255, 0, 0);
-        			draw_text_back(1, 5, buf, 255, 0, 0);    
+        			draw_text_back(2, 5, buf, 255, 0, 0);    
 
                     break;
                 case MENU_MINUTE:
-                    snprintf(buf, sizeof(buf), "MINUTO:%02d", tmp_time.minute);
+                    snprintf(buf, sizeof(buf), "%02d", tmp_time.minute);
                     //draw_text(1, 8, buf, 255, 0, 0);
-                    draw_text_back_2(1, 5, buf, 255, 0, 0);
+                    draw_text_back_2(4, 6, "MINUTO: ", 255, 0, 0);
+                    draw_text_back(50, 5, buf, 255, 0, 0);
                     break;
                 case MENU_DAY:
-                    snprintf(buf, sizeof(buf), " DIA:%02d", tmp_time.day);
+                    snprintf(buf, sizeof(buf), "DIA: %02d", tmp_time.day);
                     //draw_text(0, 8, buf, 255, 0, 0);
-                    draw_text_back_2(1, 5, buf, 255, 0, 0);
+                    draw_text_back(6, 5, buf, 255, 0, 0);
                     break;
                 case MENU_MONTH:
-                    snprintf(buf, sizeof(buf), " MES:%02d", tmp_time.month);
+                    snprintf(buf, sizeof(buf), "MES: %02d", tmp_time.month);
                     //draw_text(0, 8, buf, 255, 0, 0);
-                    draw_text_back_2(1, 5, buf, 255, 0, 0);
+                    draw_text_back(6, 5, buf, 255, 0, 0);
                     break;
                 case MENU_YEAR:
-                    snprintf(buf, sizeof(buf), " A|O:%02d", tmp_time.year-2000);
+                    snprintf(buf, sizeof(buf), "A|O: %02d", tmp_time.year-2000);
                     //draw_text(0, 8, buf, 255, 0, 0);
-                    draw_text_back_2(1, 5, buf, 255, 0, 0);
+                    draw_text_back(6, 5, buf, 255, 0, 0);
                     break;
                 default: break;
             }
@@ -828,12 +845,3 @@ void button_task(void *arg)
 */
 
 
-        /* ========= MENU TIMEOUT ========= 
-			        if (menu_active &&
-            (esp_timer_get_time() - last_button_time) > MENU_TIMEOUT_US)
-        {
-            menu_active = 0;
-            menu_state = MENU_IDLE;
-            printf("Menu timeout -> exit\n");
-        }        
-        */
