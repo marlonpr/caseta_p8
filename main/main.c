@@ -16,22 +16,49 @@
 
 
 
+//==================================== PUNTO VERDE LORA TEMPERATURA RELOJ =================================================//
 
+/* ================= LINK SUPERVISOR ================= */
 
+typedef enum {
+    LINK_OK = 0,
+    LINK_LOST,
+    RADIO_RECOVERING
+} link_state_t;
 
+volatile link_state_t link_state = LINK_OK;
 
+/* last valid packet timestamp */
+volatile int64_t last_rx_time_us = 0;
 
+/* watchdog timing */
+#define LINK_TIMEOUT_US        (10LL * 1000000)   // 10s no packets
+#define RADIO_RESET_INTERVAL   (30LL * 1000000)   // try radio fix every 30s
+#define ESP_RESET_TIMEOUT_US   (105LL * 1000000)  // restart after failures
 
+#define MAX_RADIO_RECOVERY_ATTEMPTS  3
+
+/* supervisor state */
+static int64_t recovery_timer_us = 0;
+static int64_t recovery_start_us = 0;
+static uint8_t recovery_attempts = 0;
+
+/* ⭐ IMPORTANT: radio reset request flag */
+volatile bool lora_reset_request = false;
+
+/* shared application data */
+//volatile bool temp_received = false;
+//volatile int16_t temp_global = 0;
 
 
 // ------------------ Config ------------------
 //#define LED_GPIO        GPIO_NUM_2  //=================== this line is for TX ===========
 #define DEVICE_ID       1       // 0 = Master, 1..N-1 = Slave
-#define NUM_DEVICES     3
+//#define NUM_DEVICES     2
 #define FREQ_HZ         433000000
-#define TX_INTERVAL_MS  1000
-#define LOST_TIMEOUT_MS 10000
-#define BLINK_PERIOD_MS 1000
+//#define TX_INTERVAL_MS  1000
+//#define LOST_TIMEOUT_MS 15000
+//#define BLINK_PERIOD_MS 1000
 
 static const char *TAG = "LORA_NODE";
 
@@ -45,14 +72,14 @@ static const char *TAG = "LORA_NODE";
 
 // ------------------ Globals ------------------
 /* ---- Link alive parameters ---- */
-#define LORA_RX_TIMEOUT_MS 3000   // TX considered OFF after 3s silence
+//#define LORA_RX_TIMEOUT_MS 10000   // TX considered OFF after 3s silence
 
 /* ---- Globals shared with other tasks ---- */
 volatile bool temp_received = false;
 volatile int16_t temp_global = 0;
 
 /* ---- Local state ---- */
-static int64_t last_rx_time_us = 0;
+//static int64_t last_rx_time_us = 0;
 
 typedef enum {
     PAGE_TIME_DATE = 0,
@@ -76,19 +103,21 @@ static bool temp_valid = false;
 
 //buttons
 #define PIN_MENU    GPIO_NUM_34
-#define PIN_UP      GPIO_NUM_36
-#define PIN_DOWN    GPIO_NUM_39
+#define PIN_UP      GPIO_NUM_36 // VP
+#define PIN_DOWN    GPIO_NUM_39 // VN
 
 #define DEBOUNCE_MS    500      // minimum time between presses
 #define REPEAT_DELAY   500     // initial delay before repeating
 #define REPEAT_RATE    500    // repeat interval while holding
 
+#define UP_RESET_HOLD_MS  5000
+
+static TickType_t up_reset_start = 0;
+static bool up_reset_active = false;
+
 
 static int menu_active = 0;
 static int64_t last_button_time = 0;
-
-static TickType_t menu_hold_start = 0;
-
 bool block_next_menu_edge = false;
 
 
@@ -306,6 +335,37 @@ static void menu_task(void *arg)
                 menu_irq_enabled = true;
             }
         }
+        
+        
+        
+		        /* ========= UP HOLD RESET (OUTSIDE MENU) ========= */
+		if (!menu_active)
+		{
+		    if (BTN_PRESSED(PIN_UP))
+		    {
+		        if (!up_reset_active)
+		        {
+		            up_reset_active = true;
+		            up_reset_start = now;
+		        }
+		        else
+		        {
+		            TickType_t held_ms = (now - up_reset_start) * portTICK_PERIOD_MS;
+		
+		            if (held_ms >= UP_RESET_HOLD_MS)
+		            {
+		                printf("UP held 5s -> ESP restart\n");
+		                vTaskDelay(pdMS_TO_TICKS(100));
+		                esp_restart();
+		            }
+		        }
+		    }
+		    else
+		    {
+		        up_reset_active = false;
+		        up_reset_start = 0;
+		    }
+		}
 
         /* ========= UP / DOWN (POLLING) ========= */
         if (menu_active)
@@ -370,96 +430,206 @@ static void menu_task(void *arg)
 
 
 
+void system_watchdog_task(void *arg)
+{
+    ESP_LOGI(TAG, "System watchdog started");
+
+    while (1)
+    {
+        int64_t now = esp_timer_get_time();
+
+        /* =====================================================
+           LINK LOST DETECTION
+        ===================================================== */
+        if (link_state == LINK_OK &&
+            (now - last_rx_time_us > LINK_TIMEOUT_US) &&
+            !menu_active)
+        {
+            ESP_LOGW(TAG,
+                     "LINK LOST (%.1fs silence)",
+                     (now - last_rx_time_us) / 1000000.0f);
+
+            //temp_received = false;
+
+            link_state = LINK_LOST;
+            recovery_timer_us = now;
+            recovery_attempts = 0;
+            recovery_start_us = 0;
+        }
+
+        /* =====================================================
+           RADIO RECOVERY REQUEST
+        ===================================================== */
+		if (link_state != LINK_OK &&
+		    recovery_attempts < MAX_RADIO_RECOVERY_ATTEMPTS &&
+		    (now - recovery_timer_us > RADIO_RESET_INTERVAL))
+        {
+            recovery_timer_us = now;
+            recovery_attempts++;
+
+            if (recovery_start_us == 0)
+                recovery_start_us = now;
+
+            ESP_LOGW(TAG,
+                     "Radio recovery attempt %d/%d",
+                     recovery_attempts,
+                     MAX_RADIO_RECOVERY_ATTEMPTS);
+
+            /* ⭐ request reset (DO NOT touch radio here) */
+            lora_reset_request = true;
+
+            link_state = RADIO_RECOVERING;
+        }
+
+        /* =====================================================
+           FINAL ESCALATION → ESP RESTART
+        ===================================================== */
+        if (link_state == RADIO_RECOVERING &&
+            recovery_attempts >= MAX_RADIO_RECOVERY_ATTEMPTS &&
+            recovery_start_us != 0 &&
+            (now - recovery_start_us > ESP_RESET_TIMEOUT_US))
+        {
+            ESP_LOGE(TAG, "Recovery FAILED -> ESP restart");
+
+            vTaskDelay(pdMS_TO_TICKS(300));
+            esp_restart();
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+}
 
 
-
-
-
-
-
-
-
-
-
-
-
+//=========================================================================================================================//
 
 void lora_task(void *arg)
 {
     uint8_t buf[16];
+    int64_t last_radio_check_us = 0;
 
-    /* Enable RX once at startup */
     lora_enable_rx();
-    ESP_LOGI(TAG, "RX enabled");
+    ESP_LOGI(TAG, "LoRa RX started");
 
     while (1)
     {
+        int64_t now = esp_timer_get_time();
+
+        /* =====================================================
+           HANDLE RADIO RESET REQUEST (SAFE PLACE)
+        ===================================================== */
+        if (lora_reset_request)
+        {
+            ESP_LOGW(TAG, "Performing radio reset...");
+
+            lora_sleep();
+            vTaskDelay(pdMS_TO_TICKS(30));
+            lora_enable_rx();
+
+            lora_reset_request = false;
+
+            ESP_LOGI(TAG, "Radio reset complete");
+        }
+
+        /* =====================================================
+           CHECK IRQ FLAGS
+        ===================================================== */
         uint8_t irq = lora_read_reg(REG_IRQ_FLAGS);
 
-        /* -------- Packet received -------- */
         if (irq & IRQ_RX_DONE)
         {
-            /* CRC error → ignore packet, but still clear IRQ */
             if (irq & IRQ_CRC_ERROR)
             {
-                ESP_LOGW(TAG, "CRC error");
+                ESP_LOGW(TAG, "RX CRC error");
             }
             else
             {
-                int len = lora_receive_packet(buf, sizeof(buf));
+                uint8_t rx_len =
+                    lora_read_reg(REG_RX_NB_BYTES);
 
-                ESP_LOGI(TAG,
-                    "RX RAW len=%d b0=0x%02X b1=0x%02X",
-                    len, buf[0], buf[1]);
-
-                /* Validate protocol frame */
-                if (len == 8 && buf[0] == 0xAA)
+                if (rx_len == 0 || rx_len > sizeof(buf))
                 {
-                    uint8_t rx_id = buf[1];
-                    int16_t temp = (buf[2] << 8) | buf[3];
-
-                    uint32_t cnt =
-                        (buf[4] << 24) |
-                        (buf[5] << 16) |
-                        (buf[6] << 8)  |
-                        buf[7];
-
-                    int8_t snr_raw = (int8_t)lora_read_reg(REG_PKT_SNR_VALUE);
-                    float snr = snr_raw / 4.0f;
-                    int rssi = lora_read_reg(REG_PKT_RSSI_VALUE) - 157;
-
-                    temp_global = temp;
-                    temp_received = true;
-                    last_rx_time_us = esp_timer_get_time();
+                    ESP_LOGW(TAG,
+                             "Invalid RX length=%d -> flush",
+                             rx_len);
+                }
+                else
+                {
+                    int len =
+                        lora_receive_packet(buf, rx_len);
 
                     ESP_LOGI(TAG,
-                        "RX OK id=%d temp=%d cnt=%lu RSSI=%d SNR=%.2f",
-                        rx_id, temp, cnt, rssi, snr);
+                             "RX RAW len=%d hdr=0x%02X id=%d",
+                             len, buf[0], buf[1]);
+
+                    if (len == 8 && buf[0] == 0xAA)
+                    {
+                        uint8_t rx_id = buf[1];
+
+                        int16_t temp =
+                            (buf[2] << 8) | buf[3];
+
+                        uint32_t cnt =
+                            (buf[4] << 24) |
+                            (buf[5] << 16) |
+                            (buf[6] << 8)  |
+                             buf[7];
+
+                        int8_t snr_raw =
+                            (int8_t)lora_read_reg(REG_PKT_SNR_VALUE);
+                        float snr = snr_raw / 4.0f;
+
+                        int rssi =
+                            lora_read_reg(REG_PKT_RSSI_VALUE) - 157;
+
+                        /* publish data */
+                        temp_global = temp;
+                        temp_received = true;
+
+                        /* notify watchdog */
+                        last_rx_time_us = now;
+                        link_state = LINK_OK;
+                        recovery_attempts = 0;
+
+                        ESP_LOGI(TAG,
+                                 "RX OK id=%d temp=%d cnt=%lu RSSI=%d SNR=%.2f",
+                                 rx_id, temp, cnt, rssi, snr);
+                    }
                 }
             }
 
-            /* ---- Clear IRQs and re-arm RX ---- */
+            /* radio housekeeping */
             lora_write_reg(REG_IRQ_FLAGS, 0xFF);
             lora_write_reg(REG_FIFO_ADDR_PTR, 0);
             lora_enable_rx();
         }
 
-        /* -------- Link timeout check -------- */
-        if (temp_received)
+        /* =====================================================
+           RADIO MODE WATCHDOG
+        ===================================================== */
+        if (now - last_radio_check_us > 2000000)
         {
-            int64_t now = esp_timer_get_time();
+            last_radio_check_us = now;
 
-            if ((now - last_rx_time_us) >
-                (LORA_RX_TIMEOUT_MS * 1000))
+            uint8_t opmode =
+                lora_read_reg(REG_OP_MODE);
+
+            if ((opmode & 0x07) != MODE_RX_CONTINUOUS)
             {
-                temp_received = false;
-                ESP_LOGW(TAG, "LoRa TX timeout (no packets)");
+                ESP_LOGW(TAG,
+                         "Radio left RX mode (0x%02X) -> restoring",
+                         opmode);
+
+                lora_enable_rx();
             }
         }
 
         vTaskDelay(pdMS_TO_TICKS(5));
     }
-}
+}//=========================================================================================================================//
+
+
+
+
 
 /* -------------------- DRAWING TASK (example counter) -------------------- */
 void drawing_task(void *arg)
@@ -475,82 +645,12 @@ void drawing_task(void *arg)
     int64_t last_switch_time = esp_timer_get_time(); // µs
     
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
- 
-        
-
- 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
 
     while (1) {
         // Clear + rebuild back framebuffer
         prepare_frame_back();
         
-        
-        
-        
-        
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
-        
-        
-        
+ 
         
         if (menu_state != MENU_IDLE)
         {
@@ -598,21 +698,7 @@ void drawing_task(void *arg)
             continue; // skip normal display
         }           
         
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+   
                  
         snprintf(buf, sizeof(buf), "%d*C", temp_global); 
         snprintf(buf2, sizeof(buf2), "%d*C", current_temp);   //current_temp        
@@ -758,6 +844,18 @@ void app_main(void)
    	xTaskCreatePinnedToCore(lora_task,      "LoraTask",      4096, NULL, 1, NULL, 0);
    	
 	vTaskDelay(pdMS_TO_TICKS(2000));
+	
+	last_rx_time_us = esp_timer_get_time();
+	
+	
+	xTaskCreatePinnedToCore(
+    system_watchdog_task,
+    "SysWDT",
+    2048,
+    NULL,
+    1,
+    NULL,
+    0);
 
    	
    	

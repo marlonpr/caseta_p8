@@ -52,6 +52,8 @@ extern "C" {
 #define MODE_RX_CONTINUOUS      0x05
 #define MODE_RX_SINGLE          0x06
 
+#define REG_OP_MODE 0x01
+
 
 // API
 esp_err_t lora_init(void);
@@ -62,6 +64,8 @@ int lora_receive_packet(uint8_t *buf, int maxlen);
 
 void lora_write_reg(uint8_t reg, uint8_t val);
 uint8_t lora_read_reg(uint8_t reg);
+
+void lora_sleep(void);
 
 
 #ifdef __cplusplus

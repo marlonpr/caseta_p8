@@ -158,3 +158,9 @@ int lora_receive_packet(uint8_t *buf, int maxlen) {
     }
     return 0;
 }
+
+void lora_sleep(void)
+{
+    uint8_t op = lora_read_reg(REG_OP_MODE);
+    lora_write_reg(REG_OP_MODE, (op & 0xF8) | MODE_SLEEP);
+}
