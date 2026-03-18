@@ -943,3 +943,75 @@ void button_task(void *arg)
 */
 
 
+
+
+/*
+			// Draw TIME AND DATE: 
+			draw_text_back(1, 10, "10:25", 255, 255, 255); // white 
+			draw_text_back_2(1, 1, "10-02-26", 0, 255, 0); // green 
+*/
+
+
+
+
+
+
+
+
+/*
+
+//=========================== buttons config ==============================
+static void init_buttons(void)
+{
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << GPIO_NUM_34) |
+                        (1ULL << GPIO_NUM_35) |
+                        (1ULL << GPIO_NUM_39),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,     // not supported
+        .pull_down_en = GPIO_PULLDOWN_DISABLE, // not supported
+        .intr_type = GPIO_INTR_DISABLE
+    };
+
+    ESP_ERROR_CHECK(gpio_config(&io_conf));
+}
+
+
+void button_task(void *arg)
+{
+    int last34 = 1, last35 = 1, last36 = 1;
+
+    while (1) {
+        int b34 = gpio_get_level(GPIO_NUM_34);
+        int b35 = gpio_get_level(GPIO_NUM_35);
+        int b36 = gpio_get_level(GPIO_NUM_39);
+
+        if (b34 != last34) {
+            ESP_LOGI("BTN", "GPIO34 %s", b34 ? "RELEASED" : "PRESSED");
+            last34 = b34;
+        }
+
+        if (b35 != last35) {
+            ESP_LOGI("BTN", "GPIO35 %s", b35 ? "RELEASED" : "PRESSED");
+            last35 = b35;
+        }
+
+        if (b36 != last36) {
+            ESP_LOGI("BTN", "GPIO36 %s", b36 ? "RELEASED" : "PRESSED");
+            last36 = b36;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(20)); // basic debounce
+    }
+}
+
+
+//=========================================================================
+
+
+
+
+
+*/
+
+
